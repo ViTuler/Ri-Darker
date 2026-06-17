@@ -1,0 +1,27 @@
+# Ri-Darker configuration file
+# Edit this file manually or use the controller UI (tray icon → Open Controller).
+
+settings:
+  # How often (in seconds) Ri-Darker scans for new windows to theme.
+  monitor_interval: 2
+
+  # Start the controller window minimised (only show the tray icon on launch).
+  start_minimized: true
+
+  # (Future) Launch Ri-Darker automatically when Windows starts.
+  run_at_startup: false
+
+# Target applications.
+# Key   : executable name as shown in Task Manager (case-insensitive).
+# Values: per-app theming options (all optional; defaults shown below).
+#
+# apps:
+#   notepad.exe:
+#     enabled: true
+#     dark_title_bar: true        # Flip DWM immersive-dark-mode flag
+#     window_theme: DarkMode_Explorer  # SetWindowTheme sub-app name
+#     title_bar_color: null       # Custom caption colour (Windows 11+ only)
+#     border_color: null          # Custom border colour  (Windows 11+ only)
+#     text_color: null            # Custom text colour    (Windows 11+ only)
+
+apps: {}
