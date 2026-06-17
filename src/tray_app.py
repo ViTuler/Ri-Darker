@@ -12,8 +12,8 @@ from PySide6.QtCore import QObject, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from src.config_manager import ConfigManager
-from src.theme_engine import ThemeEngine
+from config_manager import ConfigManager
+from theme_engine import ThemeEngine
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ class TrayApp(QObject):
 
     def _open_controller(self) -> None:
         # Import here to avoid circular dependencies
-        from src.ui.main_window import MainWindow
+        from ui.main_window import MainWindow
 
         if self._main_window is None:
             self._main_window = MainWindow(self.config_manager, self.theme_engine)

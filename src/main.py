@@ -12,7 +12,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from src.tray_app import TrayApp
+from tray_app import TrayApp
 
 
 def main() -> None:

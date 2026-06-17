@@ -27,9 +27,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.config_manager import ConfigManager
-from src.theme_engine import ThemeEngine
-from src.ui.app_dialog import AppDialog
+from config_manager import ConfigManager
+from theme_engine import ThemeEngine
+from ui.app_dialog import AppDialog
 
 
 class MainWindow(QMainWindow):
