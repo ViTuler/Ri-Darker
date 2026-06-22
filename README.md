@@ -54,7 +54,7 @@ apps:
     window_theme: DarkMode_Explorer
     title_bar_color: "#1e1e1e"   # Windows 11+ only
     border_color: "#3c3c3c"      # Windows 11+ only
-    text_color: "#ffffff"        # Windows 11+ only
+    text_color: "#ffffff"        # Windows 11+ title-bar text only
 
   mspaint.exe:
     enabled: true
@@ -70,6 +70,8 @@ apps:
 | `DarkMode_CFD` | Dark mode for dialogs and flyouts |
 | `DarkMode_ItemsView` | Dark mode for list/tree views |
 | *(empty string)* | Reset to default system theme |
+
+> **Note:** Ri-Darker can push Win32/DWM dark-mode hints and control themes, but applications that draw their own UI (custom renderers, game engines, many Electron/Chromium surfaces, etc.) may not follow system font/background colours.
 
 ## Project structure
 

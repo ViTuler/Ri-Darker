@@ -13,7 +13,7 @@ Uses:
 import ctypes
 import ctypes.wintypes
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,14 @@ _DWMWA_TEXT_COLOR = 36                  # Windows 11+
 # Sentinel that resets a DWM colour attribute to its system default
 _DWMWA_COLOR_DEFAULT = 0xFFFFFFFF
 
+# Messages used to force controls to re-evaluate theme colours
+_WM_THEMECHANGED = 0x031A
+_WM_SETTINGCHANGE = 0x001A
+_SMTO_ABORTIFHUNG = 0x0002
+
+# Undocumented uxtheme preferred app mode values
+_PREFERRED_APP_MODE_ALLOW_DARK = 1
+
 
 def _hex_to_colorref(hex_color: str) -> int:
     """Convert *#RRGGBB* hex string to a Windows COLORREF (0x00BBGGRR)."""
@@ -62,6 +70,10 @@ class ThemeEngine:
     def __init__(self) -> None:
         self._dwmapi: Optional[ctypes.WinDLL] = None
         self._uxtheme: Optional[ctypes.WinDLL] = None
+        self._user32: Optional[ctypes.WinDLL] = None
+        self._allow_dark_mode_for_window: Optional[Callable[[int, bool], bool]] = None
+        self._set_preferred_app_mode: Optional[Callable[[int], int]] = None
+        self._flush_menu_themes: Optional[Callable[[], None]] = None
         self._load_libraries()
 
     # ------------------------------------------------------------------
@@ -72,8 +84,44 @@ class ThemeEngine:
         try:
             self._dwmapi = ctypes.windll.dwmapi
             self._uxtheme = ctypes.windll.uxtheme
+            self._user32 = ctypes.windll.user32
+            self._load_undocumented_uxtheme_apis()
         except (OSError, AttributeError) as exc:
             logger.warning("Could not load Windows DLLs: %s", exc)
+
+    def _load_undocumented_uxtheme_apis(self) -> None:
+        if self._uxtheme is None:
+            return
+        try:
+            kernel32 = ctypes.windll.kernel32
+            get_proc = kernel32.GetProcAddress
+            get_proc.argtypes = [ctypes.wintypes.HMODULE, ctypes.c_char_p]
+            get_proc.restype = ctypes.c_void_p
+
+            def _load_ordinal(name: bytes, prototype: Any) -> Optional[Callable]:
+                addr = get_proc(self._uxtheme._handle, name)
+                if not addr:
+                    return None
+                return prototype(addr)
+
+            allow_proto = ctypes.WINFUNCTYPE(
+                ctypes.c_bool,
+                ctypes.wintypes.HWND,
+                ctypes.c_bool,
+            )
+            app_mode_proto = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_int)
+            flush_proto = ctypes.WINFUNCTYPE(None)
+
+            self._allow_dark_mode_for_window = _load_ordinal(b"#133", allow_proto)
+            self._set_preferred_app_mode = _load_ordinal(b"#135", app_mode_proto)
+            self._flush_menu_themes = _load_ordinal(b"#136", flush_proto)
+
+            if self._set_preferred_app_mode is not None:
+                self._set_preferred_app_mode(_PREFERRED_APP_MODE_ALLOW_DARK)
+                if self._flush_menu_themes is not None:
+                    self._flush_menu_themes()
+        except Exception as exc:
+            logger.debug("Could not load undocumented uxtheme APIs: %s", exc)
 
     # ------------------------------------------------------------------
     # Low-level DWM helpers
@@ -102,6 +150,41 @@ class ThemeEngine:
             logger.debug("SetWindowTheme(%d, %r) failed: %s", hwnd, sub_app_name, exc)
             return False
 
+    def _allow_window_dark_mode(self, hwnd: int) -> bool:
+        if self._allow_dark_mode_for_window is None:
+            return False
+        try:
+            return bool(self._allow_dark_mode_for_window(hwnd, True))
+        except Exception as exc:
+            logger.debug("AllowDarkModeForWindow(%d) failed: %s", hwnd, exc)
+            return False
+
+    def _notify_theme_change(self, hwnd: int) -> None:
+        if self._user32 is None:
+            return
+        try:
+            self._user32.SendMessageTimeoutW(
+                hwnd,
+                _WM_THEMECHANGED,
+                0,
+                0,
+                _SMTO_ABORTIFHUNG,
+                100,
+                None,
+            )
+            self._user32.SendMessageTimeoutW(
+                hwnd,
+                _WM_SETTINGCHANGE,
+                0,
+                0,
+                _SMTO_ABORTIFHUNG,
+                100,
+                None,
+            )
+            self._user32.RedrawWindow(hwnd, None, None, 0x0001 | 0x0004 | 0x0400)
+        except Exception as exc:
+            logger.debug("Theme refresh failed for hwnd %d: %s", hwnd, exc)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -121,14 +204,23 @@ class ThemeEngine:
                 self._dwm_set_int(hwnd, _DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, 1)
             applied = True
 
-        # 2. UxTheme sub-app name for common controls
+        descendants = self._list_child_windows(hwnd)
+
+        # 2. Hint controls to opt in to dark rendering when supported
+        if self._allow_window_dark_mode(hwnd):
+            applied = True
+        for child in descendants:
+            self._allow_window_dark_mode(child)
+
+        # 3. UxTheme sub-app name for common controls
         window_theme: str = app_config.get("window_theme", "DarkMode_Explorer") or ""
         if window_theme:
             self._ux_set_theme(hwnd, window_theme)
-            self._apply_theme_to_children(hwnd, window_theme)
+            for child in descendants:
+                self._ux_set_theme(child, window_theme)
             applied = True
 
-        # 3. Windows-11-only caption / border / text colours
+        # 4. Windows-11-only caption / border / text colours
         title_bar_color: Optional[str] = app_config.get("title_bar_color")
         if title_bar_color:
             self._dwm_set_int(hwnd, _DWMWA_CAPTION_COLOR, _hex_to_colorref(title_bar_color))
@@ -140,6 +232,11 @@ class ThemeEngine:
         text_color: Optional[str] = app_config.get("text_color")
         if text_color:
             self._dwm_set_int(hwnd, _DWMWA_TEXT_COLOR, _hex_to_colorref(text_color))
+
+        # Force controls to re-fetch theme brushes/colours.
+        self._notify_theme_change(hwnd)
+        for child in descendants:
+            self._notify_theme_change(child)
 
         return applied
 
@@ -215,10 +312,10 @@ class ThemeEngine:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _apply_theme_to_children(self, hwnd: int, theme: str) -> None:
-        """Apply *theme* to all child windows of *hwnd* via EnumChildWindows."""
+    def _list_child_windows(self, hwnd: int) -> List[int]:
+        """Return all child windows of *hwnd* via EnumChildWindows."""
         if not _WIN32_AVAILABLE:
-            return
+            return []
         children: List[int] = []
         try:
             win32gui.EnumChildWindows(
@@ -227,6 +324,5 @@ class ThemeEngine:
                 None,
             )
         except Exception:
-            return
-        for child in children:
-            self._ux_set_theme(child, theme)
+            return []
+        return children

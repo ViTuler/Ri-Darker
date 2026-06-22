@@ -133,7 +133,7 @@ class AppDialog(QDialog):
         dwm_form.addRow("Border colour\n(Windows 11+):", self._color_row(self._btn_border))
 
         self._btn_text = _ColorButton(cfg.get("text_color"))
-        dwm_form.addRow("Text colour\n(Windows 11+):", self._color_row(self._btn_text))
+        dwm_form.addRow("Title text colour\n(Windows 11+):", self._color_row(self._btn_text))
 
         root.addWidget(dwm_box)
 
@@ -153,7 +153,8 @@ class AppDialog(QDialog):
 
         note = QLabel(
             "Ri-Darker applies the chosen theme to the window and all its child controls.\n"
-            "Most applications respond to <b>DarkMode_Explorer</b>."
+            "Most applications respond to <b>DarkMode_Explorer</b>; fully custom-rendered "
+            "controls may ignore system theme colours."
         )
         note.setWordWrap(True)
         ux_form.addRow(note)
